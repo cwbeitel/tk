@@ -1,0 +1,5 @@
+IPython
+tensorflow==1.7.0
+kubernetes==5.0.0
+allensdk==0.14.4
+Pillow
