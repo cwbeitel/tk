@@ -17,31 +17,13 @@ from util import hack_dict_to_cli_args
 from kube import Job, TFJob, TFJobReplica, Resources, AttachedVolume
 
 
-class DownloadJob(Job):
-    """A Job that runs the data downloader."""
-    
-    def __init__(self, app_root, images_per_section=1, *args, **kwargs):
-        
-        data_root = os.path.join(app_root, "data")
-        
-        command = [
-            "python", "%s/tk/download.py" % app_root,
-            "--images_per_section=%s" % images_per_section
-        ]
-        command.extend(hack_dict_to_cli_args(kwargs))
-        
-        super(DownloadJob, self).__init__(command=command,
-                                          *args, **kwargs)
-
-        
 class T2TDatagenJob(Job):
     """A Job that generates training examples from raw input data."""
     
     def __init__(self, app_root, *args, **kwargs):
         
         command = [
-            "t2t-datagen",
-            "--t2t_usr_dir", "%s/tk" % app_root,
+            "t2t-datagen"
         ]
         command.extend(hack_dict_to_cli_args(kwargs))
         
@@ -98,6 +80,7 @@ class T2TExperiment(TFJob):
                                             replicas=replicas,
                                             *args, **kwargs)
 
+# TODO: CronEvalJob that terminates cron on termination of training job.
 
 class InferenceJob(TFJob):
     """A Job that runs a training experiment.
@@ -112,8 +95,6 @@ class InferenceJob(TFJob):
                  *args, **kwargs):
         
         decode_output_file_path = os.path.join(app_root, "output.txt")
-        #decode_input_file_path = ("/mnt/nfs-1/datasets/alleninst/mouse/decodeable/"
-        #                          "decodeme_paths.txt")
         
         if isinstance(num_master_replicas, str):
             num_master_replicas = int(num_master_replicas)

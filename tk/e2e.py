@@ -30,7 +30,7 @@ class E2EJob(Job):
             raise ValueError("app_root expected in kwargs, "
                              "saw %s" % kwargs)
         
-        command = ["python", "%s/kf/e2e.py" % kwargs["app_root"],
+        command = ["python", "%s/tk/e2e.py" % kwargs["app_root"],
                   "--job_config=%s" % json.dumps(kwargs)]
         
         super(E2EJob, self).__init__(command=command,

@@ -22,7 +22,7 @@ RUN pip install -r /app/requirements.txt
 ADD tk /app/tk/
 ADD vendor /app/vendor
 
-RUN pip install -e /app/vendor/t2t
+RUN pip install -e /app/vendor/tensor2tensor[allen]
 
 WORKDIR /app/
 
