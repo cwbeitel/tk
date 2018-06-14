@@ -16,11 +16,14 @@
 import os
 import datetime
 import uuid
-from util import expect_path, run_and_output
+
 import yaml
 import logging
 import shutil
 import tempfile
+
+from tk.util import expect_path
+from tk.util import run_and_output
 
 
 def stage_workspace(train_dir, workspace_root):
@@ -176,10 +179,3 @@ def ftl_build_and_push(image_target_name, source_build_dir,
     logging.info("calling command: %s" % " ".join(cmd))
     output = run_and_output(cmd)
     return output
-
-"""
-
-Todo - the ability to run a function that bundles current workspace, stages to storage, then
-        triggers build job using that code.
-
-"""

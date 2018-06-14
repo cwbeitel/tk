@@ -285,7 +285,7 @@ def expect_type(obj, ty):
 def gen_timestamped_uid():
     """Generate a string uid of the form MMDD-HHMM-UUUU."""
     now = datetime.datetime.now()
-    return now.strftime("%m%d-%H%M") + "-" + uuid.uuid4().hex[0:4]
+    return now.strftime("j%m%d-%H%M") + "-" + uuid.uuid4().hex[0:4]
 
 def maybe_mkdir(path):
     """Single interface to multiple ways of mkdir -p.

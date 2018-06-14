@@ -17,7 +17,7 @@ import uuid
 import datetime
 import logging
 
-from kube_tensorboard import TensorBoard
+from tk.kube_tensorboard import TensorBoard
 
 from tk import util
 
@@ -106,7 +106,11 @@ class TestTensorBoardComponent(unittest.TestCase):
         responses = tb.create(poll_and_check=True)
         
         tb.delete()
-        
+ 
+
+    def test_can_instantiate_without_job_name_base(self):
+      tb = TensorBoard(self.log_dir,
+                       self.namespace)
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)

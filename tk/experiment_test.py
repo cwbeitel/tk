@@ -11,21 +11,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Launcher tests."""
+import tensorflow as tf
 
-import unittest
 import os
-import logging
+import json
+
+from tk import experiment
+from tk import util
 import shutil
+import json
+import logging
 
-from tk.util import generate_job_name
+from tk.util import hack_dict_to_cli_args
 
-"""
-
-TODO: Get base names for jobs from the method names of the tests launching
-    them.
-
-"""
 
 def gen_local_smoke_args(base_name):
     
@@ -35,29 +33,25 @@ def gen_local_smoke_args(base_name):
     
     output_dir = os.path.join(app_root, "output")
     
-    job_name = generate_job_name(base_name)
+    job_name = util.generate_job_name(base_name)
     args = {
         "job_name": job_name,
-        "volume_claim_id": "nfs-1",
+        "volume_claim_id": "nfs-east1-d",
         "app_root": app_root,
         "gcp_project": "foo",
         "namespace": "kubeflow",
-        "image": "gcr.io/kubeflow-rl/enhance:0411-0440-41e6",
-        #"image": "gcr.io/kubeflow-rl/enhance-runtime:0.0.3",
-        "problems": "allen_brain_image2image_upscale",
-        "problem": "allen_brain_image2image_upscale",
+        "image": "gcr.io/kubeflow-rl/base:0.0.9",
+        "problem": "img2img_allen_brain",
         "model": "img2img_transformer",
         "hparams_set": "img2img_transformer2d_tiny",
-        "data_dir": "/mnt/nfs-1/testing/decode/data_dir/",
-        "tmp_dir": "/mnt/nfs-1/datasets/alleninst/mouse-testing",
+        "data_dir": "/mnt/nfs-east1-d/data",
         "output_dir": output_dir,
         "smoke": True,
         "batch": False,
         "train_steps": 2,
-        "eval_steps": 1, # ?
         "schedule": "train"
     }
-    
+
     return args
 
 
@@ -69,13 +63,21 @@ def _stage(local_app_root, remote_app_root):
 
 
 def gen_remote_smoke_args(base_name):
-    
+
     args = gen_local_smoke_args(base_name)
     local_app_root = args["app_root"]
-    
-    testing_storage_base = "/mnt/nfs-1/testing"
+
+    testing_storage_base = "/mnt/nfs-east1-d/testing"
     remote_app_root = "%s/%s" % (testing_storage_base,
                                  args["job_name"])
+
+    with open(os.path.join(local_app_root, "job.sh"), "w") as f:
+      f.write("pip install -e %s" % remote_app_root)
+      cmd = ["python", "-m", "tk.experiment"]
+      cmd.extend(hack_dict_to_cli_args(args))
+      f.write(" ".join(cmd))
+      logging.info(local_app_root)
+      
     _stage(local_app_root, remote_app_root)
     args["app_root"] = remote_app_root
     args["batch"] = True
@@ -83,4 +85,49 @@ def gen_remote_smoke_args(base_name):
 
     return args
 
+  
+class TestParseTFConfig(tf.test.TestCase):
 
+  def test_simple(self):
+
+    os.environ["TF_CONFIG"] = json.dumps(
+      {u'environment': u'cloud',
+       u'cluster': {
+         u'master': [u'enhance-0401-0010-882a-master-5sq4-0:2222']
+       },
+       u'task': {u'index': 0, u'type': u'master'}})
+
+    flags = experiment.tf_config_to_cmd_line_flags()
+    tf.logging.info(flags)
+
+
+class TestT2TExperiment(tf.test.TestCase):
+
+  def test_generates_expected_config(self):
+    """Test that a correctly structured job config is constructed."""
+    pass
+
+  def test_e2e_smoke_local(self):
+
+    skip = True
+
+    args = gen_local_smoke_args("test-smoke-experiment")
+    job = experiment.T2TExperiment(**args)
+
+    if not skip:
+      job.run()
+
+  def test_e2e_small_remote(self):
+
+    skip = False
+
+    args = gen_remote_smoke_args("test-small-experiment")
+    job = experiment.T2TExperiment(**args)
+
+    if not skip:
+      job.run()
+    
+
+if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.DEBUG)
+  tf.test.main()

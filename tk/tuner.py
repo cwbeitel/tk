@@ -17,12 +17,14 @@ import argparse
 import json
 import logging
 
-from kube import Job
+from tk.kube import Job
 
-from jobs import DownloadJob, T2TDatagenJob, T2TExperiment, InferenceJob
+from tk.datagen import T2TDatagenJob
+from tk.experiment import T2TExperiment
+from tk.inference import InferenceJob
 
 
-class E2EJob(Job):
+class TunerJob(Job):
 
     def __init__(self, *args, **kwargs):
 
@@ -30,10 +32,10 @@ class E2EJob(Job):
             raise ValueError("app_root expected in kwargs, "
                              "saw %s" % kwargs)
         
-        command = ["python", "%s/tk/e2e.py" % kwargs["app_root"],
+        command = ["python", "%s/tk/tuner.py" % kwargs["app_root"],
                   "--job_config=%s" % json.dumps(kwargs)]
         
-        super(E2EJob, self).__init__(command=command,
+        super(TunerJob, self).__init__(command=command,
                                      *args, **kwargs)
 
 
@@ -93,12 +95,6 @@ def main(job_config):
     global_jid = job_config["job_name"]
     
     # HACK: give the job a unique ID
-    job_config["job_name"] = "%s-%s" % (global_jid, 1)
-    # Launch and wait for download job(s)
-    download_job = DownloadJob(**job_config)
-    download_job.run()
-
-    # HACK: give the job a unique ID
     job_config["job_name"] = "%s-%s" % (global_jid, 2)
     # Launch and wait for datagen job(s)
     datagen_job = T2TDatagenJob(**job_config)
@@ -109,17 +105,8 @@ def main(job_config):
     # Launch and wait for training jobs
     train_job = T2TExperiment(**job_config)
     train_job.run()
-    
-    job_config["job_name"] = "%s-%s" % (global_jid, 4)
-    # Launch and wait for training jobs
-    job_config["data_dir"] = job_config["decode_data_dir"]
-    train_job = InferenceJob(**job_config)
-    train_job.run()
 
-    # Maybe deploy a new version
-    # TODO
     
-
 def _load_job_config_from_arg(raw_arg_string):
     
     if not isinstance(raw_arg_string, str):

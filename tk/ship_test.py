@@ -16,7 +16,9 @@ import tempfile
 import os
 import logging
 
-from ship import gcb_build_and_push, generate_image_tag, ftl_build_and_push
+from tk.ship import gcb_build_and_push
+from tk.ship import generate_image_tag
+from tk.ship import ftl_build_and_push
 
 #TODO: Change this to be something that is accessible by presubmit test runner.
 # Also will need to change auth method unless creds are manually added to 

@@ -18,35 +18,29 @@ import logging
 import os
 import shutil
 
-from util import generate_job_name
+from tk.util import generate_job_name
 
-from test_utils import gen_local_smoke_args, gen_remote_smoke_args
-from e2e import main, E2EJob
+from tk.test_utils import gen_local_smoke_args
+from tk.test_utils import gen_remote_smoke_args
+from tk.tuner import TunerJob
 
 
-class TestE2E(unittest.TestCase):
-    
-    #def test_smoke_local(self):
-    #    job_config = _gen_local_smoke_args("smoke-e2e-local")
-    #    main(job_config)
-    
-    def test_e2e_tiny_iden(self):
+class TestTuner(unittest.TestCase):
+        
+    def test_tuner_tiny_iden(self):
         """Minimal run in batch."""
         skip_run = False
-        args = gen_remote_smoke_args("test-e2e-tiny")
+        args = gen_remote_smoke_args("test-tuner-tiny")
         # For now presume we're operating on previously downloaded data
         args["tmp_dir"] = "/mnt/nfs-1/testing/artifacts/tmp_dir"
         args["decode_hparams"] = "save_images=True,num_samples=3,beam_size=1"
         args["train_steps"] = 2
         args["decode_data_dir"] = "/mnt/nfs-1/testing/artifacts/decode_data_dir"
         args["problem"] = "allen_brain_image2image_upscale"
-        job = E2EJob(**args)
+        job = TunerJob(**args)
         if not skip_run:
             job.run()
 
-
-# TODO: Decide on the organization of tests - local vs. remote, single
-# job vs. e2e, included in modules they call or separated. 
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)

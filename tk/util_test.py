@@ -16,7 +16,10 @@
 import unittest
 import tempfile
 
-from util import object_as_dict, expect_path, expect_type, dict_prune_private
+from tk.util import object_as_dict
+from tk.util import expect_path
+from tk.util import expect_type
+from tk.util import dict_prune_private
 
 
 class MyClassOne(object):

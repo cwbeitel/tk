@@ -24,8 +24,11 @@ import kubernetes
 import time
 import logging
 
-
-from util import expect_type, expect_path, object_as_dict, run_and_output, dict_prune_private
+from tk.util import expect_type
+from tk.util import expect_path
+from tk.util import object_as_dict
+from tk.util import run_and_output
+from tk.util import dict_prune_private
 
 
 # A common base image that extends kubeflow tensorflow_notebook workspace
@@ -60,36 +63,36 @@ def build_command(base_command, **kwargs):
 
 class AttachedVolume(object):
     """Model of information needed to attach a Kubernetes Volume
-    
+
     Primarily manages correpondence of volume and volume_mount fields and
     expects objects recieving `AttachedVolume` as argument to know whether to
     access `volume` or `volume_mount` fields.
-    
+
+    #TODO(cwbeitel): Potentially update name of class.
+
     """
-    
-    def __init__(self, claim_name, mount_path=None, volume_name=None):
-        """Define corresponding 
-        
-        """
+
+    def __init__(self, claim_name, mount_path=None, volume_name=None,
+                 volume_type="persistentVolumeClaim"):
 
         if not isinstance(claim_name, str):
             raise ValueError("Expected string claim_name, saw %s" % claim_name)
 
         if mount_path is None:
             mount_path = "/mnt/%s" % claim_name
-        
+
         if not isinstance(mount_path, str):
             raise ValueError("Expected string mount_path, saw %s" % claim_name)
-        
+
         if not mount_path.startswith("/"):
             raise ValueError("Mount path should start with '/', saw %s" % mount_path)
-    
+
         if volume_name is None:
             volume_name = claim_name
-    
+
         if not isinstance(volume_name, str):
             raise ValueError("Expected string volume_name, saw %s" % volume_name)
-    
+
         self.volume = {
             "name": volume_name,
             "persistentVolumeClaim": {
@@ -101,40 +104,63 @@ class AttachedVolume(object):
             "mountPath": mount_path
         }
 
-        
+
+class LocalSSD(object):
+
+  def __init__(self, disk_id=0):
+
+    self.volume = {
+      "name": "ssd%s" % disk_id,
+      "hostPath": {
+        "path": "/mnt/disks/ssd%s" % disk_id
+      }
+    }
+
+    self.volume_mount = {
+      "name": "ssd%s" % disk_id,
+      "mountPath": "/mnt/ssd%s" % disk_id
+    }
+
+
 class Resources(object):
     """Model of Kuberentes Container resources"""
-    
+
     def __init__(self, limits=None, requests=None):
-        
-        allowed_keys = ["cpu", "mem"] #etc...
-        
+
+        allowed_keys = ["cpu", "memory", "nvidia.com/gpu"]
+
+        def raise_if_disallowed_key(key):
+          if key not in allowed_keys:
+            raise ValueError("Saw resource request or limit key %s "
+                             "which is not in allowed keys %s" % (key,
+                                                                  allowed_keys))
+
         if limits is not None:
             self.limits = {}
             for key, value in limits.items():
-                if key in allowed_keys:
-                    self.limits[key] = value
+              raise_if_disallowed_key(key)
+              self.limits[key] = value
         
         if requests is not None:
             self.requests = {}
             for key, value in requests.items():
-                if key in allowed_keys:
-                    self.requests[key] = value
+              raise_if_disallowed_key(key)
+              self.requests[key] = value
 
 
 class Container(object):
     """Model of Kubernetes Container object."""
-    
+
     def __init__(self, image, name=None, args=None, command=None,
-                 resources=None, attached_volume=None,
+                 resources=None, volume_mounts=None,
                  allow_nameless=False, ports=None):
-        
+
         if args is not None:
             self.args = args
-            
+
         if command is not None:
             self.command = command
-            
+
         if ports is not None:
             if not isinstance(ports, list):
                 raise ValueError("ports must be a list, saw %s" % ports)
@@ -144,24 +170,24 @@ class Container(object):
             self.ports = ports
 
         self.image = image
-        
+
         if name is not None:
             self.name = name
         elif not allow_nameless:
             raise ValueError("The `name` argument must be specified "
                              "unless `allow_nameless` is True.")
-        
+
         if resources is not None:
             if not isinstance(resources, Resources):
                 raise ValueError("non-null resources expected to be of "
                                  "type Resources, saw %s" % type(resources))
             self.resources = resources
-        
-        if attached_volume is not None:
-            if not isinstance(attached_volume, AttachedVolume):
-                raise ValueError("non-null attached_volume expected to be of "
-                                 "type AttachedVolume, saw %s" % type(attached_volume))
-            self.volumeMounts = [attached_volume.volume_mount]
+
+        if volume_mounts is not None:
+            if not isinstance(volume_mounts, list):
+                raise ValueError("non-null volume_mounts expected to be of "
+                                 "type list, saw %s" % type(volume_mounts))
+            self.volumeMounts = volume_mounts
 
 
 def job_status_callback(job_response):
@@ -202,12 +228,12 @@ def wait_for_job(batch_api,
     # Linter complains if we don't have a return statement even though
     # this code is unreachable.
     return None
-
+  
 
 #TODO: Consider pip installing additional dependencies on job startup
 class Job(object):
     """Python model of a Kubernetes Job object."""
-    
+
     def __init__(self,
                  job_name,
                  command="",
@@ -221,9 +247,14 @@ class Job(object):
                  kind=None,
                  spec=None,
                  smoke=False,
+                 node_selector=None,
+                 additional_metadata=None,
+                 pod_affinity=None,
+                 num_local_ssd=0,
+                 resources=None,
                  *args, **kwargs):
         """Check args for and template a Job object.
-        
+
         name (str): A unique string name for the job.
         image (str): The image within which to run the job command.
         restart_policy (str): The restart policy (e.g. Never, onFailure).
@@ -235,9 +266,9 @@ class Job(object):
         spec (str): Allow the job spec to be specified explicitly.
 
         See: https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/
-        
+
         """
-        
+
         # Private attributes will be ignored when converting object to dict.
         self._command = command
         self._batch = batch
@@ -247,34 +278,49 @@ class Job(object):
             raise ValueError("The type of `smoke` should be boolean, "
                              "saw %s" % smoke)
         self._smoke = smoke
-        
+
         logging.info("smoke: %s" % self._smoke)
 
         if no_wait:
             self._poll_and_check = False
-        
+
         kwargs = {
             "args": command,
             "image": image,
             "name": "container",
-            "resources": None,
-            "attached_volume": None
+            "resources": resources,
         }
 
-        attached_volume = None
+        volumes = []
+
         if volume_claim_id is not None:
-            attached_volume = AttachedVolume(volume_claim_id)
-            kwargs["attached_volume"] = attached_volume
+          volumes.append(AttachedVolume(volume_claim_id))
+
+        if num_local_ssd > 0:
+          volumes.append(LocalSSD())
+          
+        logging.debug("volumes: %s" % volumes)
+
+        volume_mounts_spec = [getattr(volume, "volume_mount") for volume in volumes]
+        logging.debug("volume mounts spec: %s" % volume_mounts_spec)
         
+        if len(volume_mounts_spec) > 0:
+          kwargs["volume_mounts"] = volume_mounts_spec
+
         container = Container(**kwargs)
-            
+
         self.apiVersion = api_version if api_version is not None else "batch/v1"
         self.kind = kind if kind is not None else "Job"
         self.metadata = {
             "name": job_name,
             "namespace": namespace
         }
-        
+        if additional_metadata is not None:
+          if not isinstance(additional_metadata, dict):
+            raise ValueError("additional_metadata must be of type dict, saw "
+                             "%s" % additional_metadata)
+          self.metadata.update(additional_metadata)
+
         self.spec = spec if spec is not None else {
                 "template": {
                     "spec": {
@@ -284,17 +330,67 @@ class Job(object):
                 },
                 "backoffLimit": 4
             }
-        
+
         if spec is None:
-            # If the spec argument is None then we consider the attached_volume
-            # argument to modify self.spec, otherwise ignore it.
-            # By providing `spec` it is presumed users are providing a complete
-            # spec.
-            if attached_volume is not None:
-                self.spec["template"]["spec"]["volumes"] = [
-                    attached_volume.volume
+          volumes_spec = [
+            getattr(volume, "volume") for volume in volumes
+          ]
+          if len(volumes_spec) > 0:
+            self.spec["template"]["spec"]["volumes"] = volumes_spec
+
+        self.set_node_selector(node_selector)
+
+        self.set_pod_affinity(pod_affinity)
+
+    def set_node_selector(self, node_selector):
+
+      if node_selector is None:
+        return
+
+      if not isinstance(node_selector, dict):
+        raise ValueError("Non-None node_selector expected to have type dict, "
+                         "saw %s" % node_selector)
+
+      for key, value in node_selector.items():
+        node_selector[key] = str(value)
+      self.spec["template"]["spec"]["nodeSelector"] = node_selector
+
+    def set_pod_affinity(self, pod_affinity):
+
+      if pod_affinity is None:
+        return
+      
+      if not isinstance(pod_affinity, dict):
+        raise ValueError("Non-None pod_affinity expected to have type dict, "
+                         "saw %s" % pod_affinity)
+
+      affinity_key = pod_affinity.keys()[0]
+      affinity_values = pod_affinity[affinity_key]
+      if not isinstance(affinity_values, list):
+        raise ValueError("For now expecting that pod_affinity is a dict with a single "
+                         "key into a list of values, saw %s" % pod_affinity)
+
+      self.spec["template"]["spec"]["affinity"] = {
+        "podAffinity":{
+          "requiredDuringSchedulingIgnoredDuringExecution": [
+            {
+              "labelSelector": {
+                "matchExpressions": [
+                  {
+                    "key": affinity_key,
+                    "operator": "In",
+                    "values": affinity_values
+                  }
                 ]
-          
+              }
+            },
+            {
+              "topologyKey": "kubernetes.io/hostname"
+            }
+          ]
+        }
+      }
+
     def run(self):
         
         if self._smoke:
@@ -341,16 +437,31 @@ class Job(object):
         logging.info("Triggering local run.")
         
         output = run_and_output(self._command)
-    
+
 
 class TFJobReplica(object):
     """Python model of a kubeflow.org TFJobReplica object."""
-    
+
     def __init__(self, replica_type, num_replicas, args, image,
-                 resources=None, attached_volume=None, restart_policy="OnFailure"):
-        
+                 resources=None,
+                 attached_volumes=None,
+                 restart_policy="OnFailure",
+                 additional_metadata=None,
+                 pod_affinity=None,
+                 node_selector=None):
+
         self.replicas = num_replicas
-        
+
+        # HACK
+        if attached_volumes == None:
+          attached_volumes = []
+
+        volume_mounts = [
+          getattr(volume, "volume_mount") for volume in attached_volumes
+        ]
+        if len(volume_mounts) == 0:
+          volume_mounts = None
+
         self.template = {
             "spec": {
                 "containers": [
@@ -358,20 +469,76 @@ class TFJobReplica(object):
                               image=image,
                               name="tensorflow",
                               resources=resources,
-                              attached_volume=attached_volume)
+                              volume_mounts=volume_mounts)
                 ],
                 "restartPolicy": restart_policy,
             }
         }
 
         self.tfReplicaType = replica_type
-                
-        if isinstance(attached_volume, AttachedVolume):
-            # Add attached volume to repliac spec
-            self.template["spec"]["volumes"] = [
-                attached_volume.volume
-            ]
 
+        attached_volume_spec = []
+        for volume in attached_volumes:
+          if not isinstance(volume, AttachedVolume) and not isinstance(volume, LocalSSD):
+            raise ValueError("attached_volumes attribute must be a list of "
+                             "AttachedVolume or LocalSSD objects, saw %s" % volume)
+          attached_volume_spec.append(volume.volume)
+
+        if len(attached_volume_spec) > 0:
+          self.template["spec"]["volumes"] = attached_volume_spec
+
+        self.set_node_selector(node_selector)
+
+        self.set_pod_affinity(pod_affinity)
+
+    def set_node_selector(self, node_selector):
+
+      if node_selector is None:
+        return
+
+      if not isinstance(node_selector, dict):
+        raise ValueError("Non-None node_selector expected to have type dict, "
+                         "saw %s" % node_selector)
+
+      for key, value in node_selector.items():
+        node_selector[key] = str(value)
+      self.template["spec"]["nodeSelector"] = node_selector
+
+    def set_pod_affinity(self, pod_affinity):
+
+      if pod_affinity is None:
+        return
+      
+      if not isinstance(pod_affinity, dict):
+        raise ValueError("Non-None pod_affinity expected to have type dict, "
+                         "saw %s" % pod_affinity)
+
+      affinity_key = pod_affinity.keys()[0]
+      affinity_values = pod_affinity[affinity_key]
+      if not isinstance(affinity_values, list):
+        raise ValueError("For now expecting that pod_affinity is a dict with a single "
+                         "key into a list of values, saw %s" % pod_affinity)
+
+      self.template["spec"]["affinity"] = {
+        "podAffinity":{
+          "requiredDuringSchedulingIgnoredDuringExecution": [
+            {
+              "labelSelector": {
+                "matchExpressions": [
+                  {
+                    "key": affinity_key,
+                    "operator": "In",
+                    "values": affinity_values
+                  }
+                ]
+              }
+            },
+            {
+              "topologyKey": "kubernetes.io/hostname"
+            }
+          ]
+        }
+      }
 
 # TODO: Either figure out how best to make use of existing tf_job_client in 
 # https://github.com/kubeflow/tf-operator/blob/master/py/tf_job_client.py
@@ -406,6 +573,7 @@ def wait_for_tfjob(crd_api,
   """
   
   end_time = datetime.datetime.now() + timeout
+  results=None
   while True:
     results = crd_api.get_namespaced_custom_object(
       _TF_JOB_GROUP, _TF_JOB_VERSION, namespace, _TF_JOB_PLURAL, name)
@@ -426,7 +594,7 @@ def wait_for_tfjob(crd_api,
 
   # Linter complains if we don't have a return statement even though
   # this code is unreachable.
-  return None
+  return results
 
 
 #TODO: So obviously this object is highly similar to the Job object.
@@ -468,7 +636,7 @@ class TFJob(Job):
         #pprint.pprint(response)
         
         if poll_and_check:
-            wait_for_tfjob(crd_client,
-                           job_dict["metadata"]["namespace"],
-                           job_dict["metadata"]["name"])
+            return wait_for_tfjob(crd_client,
+                                  job_dict["metadata"]["namespace"],
+                                  job_dict["metadata"]["name"])
     

@@ -18,7 +18,7 @@ import datetime
 
 import kubernetes
 
-from kube import AttachedVolume, Container
+from tk.kube import AttachedVolume, Container
 import util
 
 
@@ -111,7 +111,7 @@ class TensorBoardDeployment(object):
     def __init__(self,
                  log_dir,
                  deployment_name,
-                 image="gcr.io/tensorflow/tensorflow:latest",
+                 image="tensorflow/tensorflow:1.7.0",
                  namespace="default",
                  kind="Deployment",
                  spec=None,
@@ -130,22 +130,23 @@ class TensorBoardDeployment(object):
             "--logdir=" + log_dir,
             "--port=80"
         ]
-        
+
         container_args = {
             "command": command,
             "image": image,
             "name": "tensorboard",
             "ports": [{"containerPort": 80}],
-            "attached_volume": None
         }
-            
+
         attached_volume = None
         if volume_claim_id is not None:
-            attached_volume = AttachedVolume(volume_claim_id)
-            container_args["attached_volume"] = attached_volume
+          attached_volume = AttachedVolume(volume_claim_id)
+          container_args["attached_volumes"] = [
+            attached_volume
+          ]
 
         container = Container(**container_args)
-        
+
         self.spec = spec if spec is not None else {
             "replicas": 1, 
             "template": {
@@ -215,7 +216,7 @@ class TensorBoard(object):
         self.namespace = namespace        
 
         if job_name_base is None:
-            job_name_base = generate_job_name()
+            job_name_base = util.generate_job_name("tb")
         
         self.deployment_name = "%s-depl" % job_name_base
         self.service_name = "%s-svc" % job_name_base

@@ -1,3 +1,0 @@
-[submodule "vendor/tensor2tensor"]
-	path = vendor/tensor2tensor
-	url = https://github.com/cwbeitel/tensor2tensor
