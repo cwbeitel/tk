@@ -72,16 +72,13 @@ class T2TExperiment(TFJob):
         if (not isinstance(num_worker_replicas, int) or num_worker_replicas < 0):
             raise ValueError("The number of worker replicas must be an "
                              "integer greater than or equal to zero.")
-        
+
         if (not isinstance(num_ps_replicas, int) or 
             num_ps_replicas < 0):
             raise ValueError("The number of ps replicas must be an "
                              "integer greater than or equal to zero.")
 
         command = ["sh", os.path.join(app_root, "job.sh")]
-        #command = ["cd", app_root, "&&", "python", "-m", "tk.experiment"]
-
-        #command.extend(hack_dict_to_cli_args(kwargs))
 
         # TODO: For now, just run all components with the same resources.
         master_resources = Resources(requests={
@@ -119,7 +116,8 @@ class T2TExperiment(TFJob):
                          args=command,
                          image=image,
                          resources=master_resources,
-                         attached_volumes=volumes)
+                         attached_volumes=volumes,
+                         node_selector=selector_labels)
         ]
 
         if num_ps_replicas > 0:
@@ -129,7 +127,8 @@ class T2TExperiment(TFJob):
                              args=command,
                              image=image,
                              resources=ps_resources,
-                             attached_volumes=volumes)
+                             attached_volumes=volumes,
+                             node_selector=selector_labels)
             )
 
         if num_worker_replicas > 0:
@@ -139,7 +138,8 @@ class T2TExperiment(TFJob):
                              args=command,
                              image=image,
                              resources=worker_resources,
-                             attached_volumes=volumes)
+                             attached_volumes=volumes,
+                             node_selector=selector_labels)
             )
 
         super(T2TExperiment, self).__init__(command=command,
@@ -233,6 +233,7 @@ def main(argv):
         FLAGS.data_dir = FLAGS.ssd_mount_path
 
     tf_config_to_additional_flags()
+
     trainer_main(None)
 
 
