@@ -479,9 +479,9 @@ class TFJobReplica(object):
 
         attached_volume_spec = []
         for volume in attached_volumes:
-          if not isinstance(volume, AttachedVolume) and not isinstance(volume, LocalSSD):
-            raise ValueError("attached_volumes attribute must be a list of "
-                             "AttachedVolume or LocalSSD objects, saw %s" % volume)
+          #if not isinstance(volume, AttachedVolume) and not isinstance(volume, LocalSSD):
+          #  raise ValueError("attached_volumes attribute must be a list of "
+          #                   "AttachedVolume or LocalSSD objects, saw %s" % volume)
           attached_volume_spec.append(volume.volume)
 
         if len(attached_volume_spec) > 0:

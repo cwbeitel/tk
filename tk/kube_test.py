@@ -256,8 +256,9 @@ class TestJob(unittest.TestCase):
         def __init__(self, *args, **kwargs):
 
           # Check that a GPU device is visible.
-          command = ["nvidia-smi"]
-
+          #command = ["nvidia-smi"]
+          #command = ["echo", "\$LD_LIBRARY_PATH"]
+          command = ["ls", "/usr/local/"]
           super(ReportGPU, self).__init__(
             command=command,
             *args, **kwargs)
@@ -280,6 +281,7 @@ class TestJob(unittest.TestCase):
       # so if the time-out is longer than that this will fail under that condition.
 
       if not skip:
+        pprint.pprint(job.as_dict())
         job.run()
         # TODO: Pull logs for job and verify they contain "Tesla K80"
         # TODO: Check that it scheduled on the correct node pool
@@ -305,7 +307,7 @@ class TestJob(unittest.TestCase):
 
     def test_complex_command(self):
 
-      skip = False
+      skip = True
   
       command = [
             "echo", "'", "pip", "install", "-e", "foo", "'"
@@ -317,8 +319,6 @@ class TestJob(unittest.TestCase):
             "&&",
             "cat", "job.sh"
       ]
-
-      ["sh", "/app/job.sh"]
 
       jid = gen_timestamped_uid()
       job = Job(**{
@@ -422,45 +422,52 @@ class TestTFJob(unittest.TestCase):
     def test_instantiate_tfjob(self):
         """Test that a local TFJob model can be instantiated."""
 
-        """
-        Issues:
-        - Isn't running on 8-GPU node, probably because node_selector
-          handling is not yet implemented.
-        - That may explain why the nvidia setup driver does not seem to have
-          run?
-        - Hmm... could just go ahead with trying some training which would
-          involve modifying the command and re-building the container.
-        """
-        
-        skip = True
-        
-        # Should be GPU image
-        #image = "tensorflow/tensorflow:nightly-gpu"
-        image = "gcr.io/kubeflow-rl/base:0.0.9"
-        train_resources = Resources(requests={
-                             "cpu": 1,
-                             "memory": "4Gi",
-                             "nvidia.com/gpu": 1
-                         })
+        skip = False
 
-        command = [
-          "nvidia-smi"
-        ]
+        # Should be GPU image
+        image = "tensorflow/tensorflow:nightly-gpu"
+        #image = "gcr.io/kubeflow-rl/base:0.0.11"
+        train_resources = Resources(limits={
+                             #"cpu": 1,
+                             #"memory": "4Gi",
+                             "nvidia.com/gpu": 1
+                          })
+
+        command = ["nvidia-smi"]
+
+        #command = ["find", "/usr/local/nvidia/"]
+        #command = ["ls", "/usr/local/"]
 
         job_name = gen_timestamped_uid()
 
         # Pods of the TFJob will run in a node pool that matches these
         # labels.
-        job_node_selector = {
-          "gpuspernode": 2,
-          "highmem": "true",
-          "preemptible": "true",
-          "type": "train",
-          "cloud.google.com/gke-accelerator": "nvidia-tesla-k80"
-        }
-        
+        #job_node_selector = {
+        #  "gpuspernode": 1,
+        #  "highmem": "true",
+        #  "preemptible": "true",
+        #  "type": "train",
+        #  "cloud.google.com/gke-accelerator": "nvidia-tesla-k80"
+        #}
+
         # A PVC with this ID must exist within the namespace of the job
         pvc_id = "nfs-east1-d"
+
+        class NVIDIADriverMount(object):
+
+          def __init__(self, disk_id=0):
+
+            self.volume = {
+              "name": "nvidia-drivers",
+              "hostPath": {
+                "path": "/usr/local/nvidia"
+              }
+            }
+
+            self.volume_mount = {
+              "name": "nvidia-drivers",
+              "mountPath": "/usr/local/nvidia"
+            }
 
         replicas = [
           TFJobReplica(replica_type="MASTER",
@@ -468,13 +475,17 @@ class TestTFJob(unittest.TestCase):
                        args=command,
                        image=image,
                        resources=train_resources,
-                       attached_volumes=[AttachedVolume(pvc_id),
-                                         LocalSSD()],
-                       additional_metadata={
-                         "master_name": job_name
-                       },
-                       node_selector=job_node_selector
-                      ),
+                       #attached_volumes=[NVIDIADriverMount()],
+                       #attached_volumes=[AttachedVolume(pvc_id),
+                       #                  LocalSSD()],
+                       #additional_metadata={
+                       #  "master_name": job_name
+                       #},
+                       #node_selector=job_node_selector
+                      )
+        ]
+
+        """
           TFJobReplica(replica_type="WORKER",
                        num_replicas=1,
                        args=command,
@@ -487,7 +498,7 @@ class TestTFJob(unittest.TestCase):
                        #pod_affinity={"master_name": [job_name]},
                        node_selector=job_node_selector
                       )
-        ]
+        """
 
         """
         TFJobReplica(replica_type="PS",
@@ -514,6 +525,8 @@ class TestTFJob(unittest.TestCase):
                       replicas=replicas)
 
         if not skip:
+          import pprint
+          pprint.pprint(tfjob.as_dict())
           results = tfjob.batch_run()
           self.assertEqual(results.get("status", {}).get("state", {}), "Succeeded")
 
