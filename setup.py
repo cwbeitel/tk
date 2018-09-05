@@ -22,11 +22,12 @@ DESCRIPTION = 'TK is a kit of tools in kit form.'
 URL = ''
 REQUIRED = [
     "IPython",
-    "tensorflow",
-    #"tensorflow-gpu",
+    #"tensorflow",
+    "tensorflow-gpu",
     "kubernetes==5.0.0",
     "allensdk==0.14.4",
-    "Pillow"
+    "Pillow",
+    "psutil"
 ]
 
 setup(

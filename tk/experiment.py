@@ -44,7 +44,9 @@ class T2TExperiment(TFJob):
                num_ps_replicas=0,
                cpu=1,
                memory="1Gi",
-               num_gpu=0,
+               master_gpu=0,
+               worker_gpu=0,
+               ps_gpu=0,
                volume_claim_id=None,
                selector_labels={},
                num_local_ssd=0,
@@ -80,25 +82,27 @@ class T2TExperiment(TFJob):
       raise ValueError("The number of ps replicas must be an "
                        "integer greater than or equal to zero.")
 
-    command = ["sh", os.path.join(app_root, "job.sh")]
+    master_command = ["sh", os.path.join(app_root, "master-job.sh")]
+    ps_command = ["sh", os.path.join(app_root, "ps-job.sh")]
+    worker_command = ["sh", os.path.join(app_root, "worker-job.sh")]
 
     # TODO: For now, just run all components with the same resources.
     master_resources = Resources(limits={
       "cpu": cpu,
       "memory": memory,
-      "nvidia.com/gpu": num_gpu
+      "nvidia.com/gpu": master_gpu
     })
 
     worker_resources = Resources(limits={
       "cpu": cpu,
       "memory": memory,
-      "nvidia.com/gpu": num_gpu
+      "nvidia.com/gpu": worker_gpu
     })
 
     ps_resources = Resources(limits={
-      "cpu": "100m",
-      "memory": "1Gi",
-      "nvidia.com/gpu": num_gpu
+      "cpu": cpu,
+      "memory": memory,
+      "nvidia.com/gpu": ps_gpu
     })
 
     volumes = []
@@ -116,7 +120,7 @@ class T2TExperiment(TFJob):
     replicas = [
       TFJobReplica(replica_type="MASTER",
                    num_replicas=1,
-                   args=command,
+                   args=master_command,
                    image=image,
                    resources=master_resources,
                    attached_volumes=volumes,
@@ -127,7 +131,7 @@ class T2TExperiment(TFJob):
       replicas.append(
         TFJobReplica(replica_type="PS",
                      num_replicas=num_ps_replicas,
-                     args=command,
+                     args=ps_command,
                      image=image,
                      resources=ps_resources,
                      attached_volumes=volumes,
@@ -139,14 +143,14 @@ class T2TExperiment(TFJob):
       replicas.append(
         TFJobReplica(replica_type="WORKER",
                      num_replicas=num_worker_replicas,
-                     args=command,
+                     args=worker_command,
                      image=image,
                      resources=worker_resources,
                      attached_volumes=volumes,
                      node_selector=selector_labels)
       )
 
-    super(T2TExperiment, self).__init__(command=command,
+    super(T2TExperiment, self).__init__(command="",
                                         replicas=replicas,
                                         *args, **kwargs)
 
@@ -188,17 +192,20 @@ def tf_config_to_additional_flags():
   tid = tf_config["task"]["index"]
   task_type = tf_config["task"]["type"]
 
-  #FLAGS.master = master_address
-  #FLAGS.ps_replicas = num_ps
-  #FLAGS.worker_replicas = num_workers + num_masters
-  #FLAGS.worker_id = tid
-  #FLAGS.worker_job = '/job:%s' % task_type
-  FLAGS.ps_gpu = 0
-  #FLAGS.schedule = 'train'
-  #FLAGS.sync = True if (FLAGS.worker_replicas > 1) else False
+  FLAGS.master = master_address
+  FLAGS.ps_replicas = num_ps
 
-  #if task_type == "ps":
-  #  FLAGS.schedule = "run_std_server"
+  if task_type == "ps":
+    FLAGS.schedule = "run_std_server"
+    return task_type, tid
+  
+  FLAGS.worker_id = tid
+  FLAGS.worker_job = '/job:%s' % task_type
+  FLAGS.worker_gpu = 0
+  FLAGS.worker_replicas = 1
+  
+  FLAGS.sync = True
+  FLAGS.schedule = 'train'
 
   return task_type, tid
 
@@ -218,32 +225,28 @@ def configure_logging(worker_name):
   log.addHandler(fh)
 
 
-def start_bg_resource_logger(base_path):
-  cmd = ('python -m tk.resource_logger --base_path %s &' % base_path)
-  os.system(cmd)
+#def start_bg_resource_logger(base_path):
+#  cmd = ('python -m tk.resource_logger --base_path %s &' % base_path)
+#  os.system(cmd)
 
 
 def main(argv):
   """Configure, setup logging, and train."""
 
-  #os.system("started > %s" % os.path.join(FLAGS.output_dir,
-  #                                        "status.txt"))
-
   task_type, task_id = tf_config_to_additional_flags()
 
-  worker_name = "%s-%s" % (task_type, task_id)
-  FLAGS.output_dir = os.path.join(FLAGS.output_dir,
-                                  worker_name)
   tf.gfile.MakeDirs(FLAGS.output_dir)
+  
+  # worker_name = "%s-%s" % (task_type, task_id)
+  # FLAGS.output_dir = os.path.join(FLAGS.output_dir,
+  #                                worker_name)
 
-  configure_logging(worker_name)
+  # configure_logging(worker_name)
 
-  start_bg_resource_logger(FLAGS.output_dir)
+  # TODO: Make this optional so it can be switched off when running tests.
+  # start_bg_resource_logger(FLAGS.output_dir)
 
   trainer_main(None)
-
-  #os.system("done > %s" % os.path.join(FLAGS.output_dir,
-  #                                     "status.txt"))
 
 
 if __name__ == "__main__":

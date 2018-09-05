@@ -16,8 +16,23 @@ import time
 import unittest
 import multiprocessing
 
+import os
+import json
+import sys
+
 import tensorflow as tf
 
+from tk.util import generate_job_name
+from tk.util import hack_dict_to_cli_args
+from tk.util import run_and_output
+
+from tk.experiment import main
+
+"""
+
+*** Question: Do the sys.argv.extend calls affect eachother?
+
+"""
 
 class ThreadContext(object):
   """Start a pool of threads and cleanup on exit.
@@ -42,14 +57,47 @@ class ThreadContext(object):
 class TestDistributed(unittest.TestCase):
 
   def test_local_distributed_setup(self):
+    
+    def _get_cli_args(tag):
+        job_name = generate_job_name("test")
+        args = {
+            "problem": "img2img_allen_brain_dim8to32",
+            "model": "img2img_transformer",
+            "hparams_set": "img2img_transformer2d_tiny",
+            "data_dir": "/mnt/nfs-east1-d/data",
+            "output_dir": "/tmp/%s-%s" % (job_name, tag),
+            "train_steps": 1000,
+            "schedule": "train",
+            "hparams": "batch_size=1"
+        }
+        return hack_dict_to_cli_args(args)
+
+    def get_tfc(task_type):
+        return json.dumps(
+          {u'environment': u'cloud',
+           u'cluster': {
+             u'master': [u'localhost:2222'],
+             u'ps': [u'localhost:2221'],
+             u'worker': [u'localhost:2220'],
+           },
+           u'task': {u'index': 0, u'type': task_type.encode("utf-8")}})
 
     def start_ps(_):
       tf.logging.info("Running parameter server...")
-      time.sleep(100)
+      os.environ["TF_CONFIG"] = get_tfc("ps")
+      print(os.environ["TF_CONFIG"])
+      sys.argv.extend(_get_cli_args("ps"))
+      sys.argv.extend("--schedule=run_std_server")
+      tf.app.run()
+      tf.logging.info("Finished running parameter server.")
 
     def start_worker(_):
       tf.logging.info("Running worker...")
-      time.sleep(100)
+      os.environ["TF_CONFIG"] = get_tfc("worker")
+      sys.argv.extend(_get_cli_args("worker"))
+      tf.app.run()
+      tf.logging.info("Finished running worker.")
+
 
     threads = [
         multiprocessing.Process(
@@ -60,11 +108,11 @@ class TestDistributed(unittest.TestCase):
     
     with ThreadContext(threads):
 
-      # Run a master referencing the above PS and worker
-      # TODO
-    
+      os.environ["TF_CONFIG"] = get_tfc("master")
+      sys.argv.extend(_get_cli_args("master"))
+      tf.app.run()
 
-      time.sleep(5)
+      time.sleep(100)
 
 
 if __name__ == "__main__":
