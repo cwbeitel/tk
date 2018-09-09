@@ -188,7 +188,7 @@ def tf_config_to_additional_flags():
 
   master_address = "grpc://%s" % masters[0]
   tf.logging.info("master address: %s" % master_address)
-  
+
   tid = tf_config["task"]["index"]
   task_type = tf_config["task"]["type"]
 
@@ -198,36 +198,16 @@ def tf_config_to_additional_flags():
   if task_type == "ps":
     FLAGS.schedule = "run_std_server"
     return task_type, tid
-  
+
   FLAGS.worker_id = tid
   FLAGS.worker_job = '/job:%s' % task_type
   FLAGS.worker_gpu = 0
   FLAGS.worker_replicas = 1
-  
+
   FLAGS.sync = True
   FLAGS.schedule = 'train'
 
   return task_type, tid
-
-
-def configure_logging(worker_name):
-  """Configure logging to file named after worker."""
-
-  logs_filename = "%s-logs.txt" % worker_name
-
-  log = logging.getLogger('tensorflow')
-  log.setLevel(logging.DEBUG)
-
-  tf.gfile.MakeDirs(FLAGS.output_dir)
-  fh = logging.FileHandler(os.path.join(FLAGS.output_dir,
-                                        logs_filename))
-  fh.setLevel(logging.DEBUG)
-  log.addHandler(fh)
-
-
-#def start_bg_resource_logger(base_path):
-#  cmd = ('python -m tk.resource_logger --base_path %s &' % base_path)
-#  os.system(cmd)
 
 
 def main(argv):
@@ -236,15 +216,8 @@ def main(argv):
   task_type, task_id = tf_config_to_additional_flags()
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
-  
-  # worker_name = "%s-%s" % (task_type, task_id)
-  # FLAGS.output_dir = os.path.join(FLAGS.output_dir,
-  #                                worker_name)
 
-  # configure_logging(worker_name)
-
-  # TODO: Make this optional so it can be switched off when running tests.
-  # start_bg_resource_logger(FLAGS.output_dir)
+  worker_name = "%s-%s" % (task_type, task_id)
 
   trainer_main(None)
 
