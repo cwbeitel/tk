@@ -27,7 +27,8 @@ REQUIRED = [
     "kubernetes==5.0.0",
     "allensdk==0.14.4",
     "Pillow",
-    "psutil"
+    "psutil",
+    "protobuf_to_dict"
 ]
 
 setup(

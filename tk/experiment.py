@@ -158,6 +158,19 @@ class T2TExperiment(TFJob):
 def tf_config_to_additional_flags():
   """Read TF_CONFIG and set relevant t2t FLAGS."""
 
+  if "TF_CONFIG" not in os.environ:
+    tf.logging.info("No TF_CONFIG present, returning dummy.")
+    task_type = "master"
+    tid = 0
+    #FLAGS.master = None
+    #FLAGS.ps_replicas = 0
+    #FLAGS.worker_id = tid
+    #FLAGS.worker_job = '/job:%s' % task_type
+    #FLAGS.worker_gpu = 0
+    #FLAGS.worker_replicas = 1
+    #FLAGS.schedule = 'train'
+    return task_type, 0
+
   tf_config = os.environ["TF_CONFIG"]
 
   tf_config = json.loads(tf_config)
