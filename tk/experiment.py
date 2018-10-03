@@ -231,7 +231,7 @@ def main(argv):
   tf.gfile.MakeDirs(FLAGS.output_dir)
 
   worker_name = "%s-%s" % (task_type, task_id)
-
+    
   trainer_main(None)
 
 

@@ -11,5 +11,6 @@
 # limitations under the License.
 
 from tk.models import img2img_adv
-from tk.models import similarity_transformer_dev
+from tk.models import similarity_transformer
 from tk.data_generators import allen_brain
+from tk.data_generators import function_docstring
