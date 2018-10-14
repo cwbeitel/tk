@@ -129,3 +129,133 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
     return [
         metrics.Metrics.ACC
     ]
+
+
+def _random_mask_sequence(sequence):
+  """'quick brown fox' -> 'quick ##### fox'"""
+  arr = sequence.split()
+  ind = np.random.randint(len(arr))
+  arr[ind] = ''.join(["#" for _ in range(0, len(arr[ind]))])
+  return ' '.join(arr)
+
+
+@registry.register_problem
+class GithubStringInpaint(GithubFunctionDocstring):
+  """Predict full string from truncated string.
+  
+  TODO: Do this with a preprocess_example method instead of generating
+        different examples.
+  """
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    csv_files = self.get_csv_files(data_dir, tmp_dir, dataset_split)
+
+    for pairs_file in csv_files:
+      tf.logging.debug("Reading {}".format(pairs_file))
+      with tf.gfile.Open(pairs_file) as csv_file:
+        for line in csv_file:
+          reader = csv.reader(StringIO(line))
+          for docstring_tokens, _ in reader:
+
+            example = {
+                "inputs": _random_mask_sequence(docstring_tokens),
+                "targets": docstring_tokens,
+                "embed_code": [0]
+            }
+
+            yield example
+
+
+@registry.register_problem
+class GithubCodeInpaint(GithubFunctionDocstring):
+  """Code in-painting given randomly ablated regions."""
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    csv_files = self.get_csv_files(data_dir, tmp_dir, dataset_split)
+
+    for pairs_file in csv_files:
+      tf.logging.debug("Reading {}".format(pairs_file))
+      with tf.gfile.Open(pairs_file) as csv_file:
+        for line in csv_file:
+          reader = csv.reader(StringIO(line))
+          for _, function_tokens in reader:
+
+            example = {
+                "inputs": _random_mask_sequence(function_tokens),
+                "targets": function_tokens,
+                "embed_code": [0]
+            }
+
+            yield example
+
+
+@registry.register_problem
+class GithubMultiProblemBase(GithubFunctionDocstring):
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    csv_files = self.get_csv_files(data_dir, tmp_dir, dataset_split)
+
+    for pairs_file in csv_files:
+      tf.logging.debug("Reading {}".format(pairs_file))
+      with tf.gfile.Open(pairs_file) as csv_file:
+        for line in csv_file:
+          reader = csv.reader(StringIO(line))
+          for docstring_tokens, function_tokens in reader:
+
+            yield {
+                "inputs": _random_mask_sequence(function_tokens),
+                "targets": function_tokens,
+                "embed_code": [0]
+            }
+
+            yield {
+                "inputs": _random_mask_sequence(docstring_tokens),
+                "targets": docstring_tokens,
+                "embed_code": [0]
+            }
+
+
+@registry.register_problem
+class GithubConstrainedEmbedding(GithubFunctionDocstring):
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    csv_files = self.get_csv_files(data_dir, tmp_dir, dataset_split)
+
+    for pairs_file in csv_files:
+      tf.logging.debug("Reading {}".format(pairs_file))
+      with tf.gfile.Open(pairs_file) as csv_file:
+        for line in csv_file:
+          reader = csv.reader(StringIO(line))
+          for docstring_tokens, function_tokens in reader:
+
+            yield {
+                "inputs": _random_mask_sequence(function_tokens),
+                "targets": function_tokens,
+                "docstring": docstring_tokens,
+                "code": function_tokens,
+                "embed_code": [0]
+            }
+
+            yield {
+                "inputs": _random_mask_sequence(docstring_tokens),
+                "targets": docstring_tokens,
+                "docstring": docstring_tokens,
+                "code": function_tokens,
+                "embed_code": [0]
+            }
+
+  def example_reading_spec(self):
+    data_fields, data_items_to_decoders = super(GithubConstrainedEmbedding,
+                                                self).example_reading_spec()
+
+    data_fields.update({
+        "docstring": "",
+        "code": ""
+    })
+
+    data_items_to_decoders.update({
+        "docstring": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="docstring"),
+        "code": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="code")
+    })
+
+    return data_fields, data_items_to_decoders

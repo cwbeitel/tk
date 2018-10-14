@@ -17,6 +17,8 @@ TODO: Currently this test assumes data_dir is /mnt/nfs-east1-d/data
 
 python -m tk.models.similarity_transformer_export_test
 
+requires host machine has tensorflow_model_server executable available
+
 """
 
 from __future__ import absolute_import
@@ -29,12 +31,13 @@ import tempfile
 import atexit
 import subprocess
 import socket
+import shlex
 
 import grpc
 import tensorflow as tf
 
 from tensor2tensor.utils import registry
-#from tensor2tensor.serving import serving_utils
+from tensor2tensor.serving import serving_utils
 from tensor2tensor.serving import export
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import usr_dir
@@ -104,6 +107,20 @@ def WaitForServerReady(port):
 class TensorflowModelServer(object):
 
   @staticmethod
+  def __TestSrcDirPath(relative_path=''):
+
+    base = "/tmp"
+
+    if 'TEST_SRCDIR' in os.environ:
+      base = os.environ['TEST_SRCDIR']
+
+    path = os.path.join(base,
+                        'test-modelserver',
+                        relative_path)
+    tf.gfile.MakeDirs(path)
+    return path
+
+  @staticmethod
   def RunServer(model_name,
                 model_path,
                 model_config_file=None,
@@ -120,31 +137,25 @@ class TensorflowModelServer(object):
       model_name: Name of model.
       model_path: Path to model.
       model_config_file: Path to model config file.
-      monitoring_config_file: Path to the monitoring config file.
-      batching_parameters_file: Path to batching parameters.
-      grpc_channel_arguments: Custom gRPC args for server.
-      wait_for_server_ready: Wait for gRPC port to be ready.
-      pipe: subpipe.PIPE object to read stderr from server.
     Returns:
       3-tuple (<Popen object>, <grpc host:port>, <rest host:port>).
     Raises:
       ValueError: when both model_path and config_file is empty.
     """
-    args_key = TensorflowModelServerTest.GetArgsKey(**locals())
-    if args_key in TensorflowModelServerTest.model_servers_dict:
-      return TensorflowModelServerTest.model_servers_dict[args_key]
+
     port = PickUnusedPort()
+
     rest_api_port = PickUnusedPort()
+
     print('Starting test server on port: {} for model_name: '
           '{}/model_config_file: {}'.format(port, model_name,
                                             model_config_file))
     command = os.path.join(
-        TensorflowModelServerTest.__TestSrcDirPath('model_servers'),
+        TensorflowModelServer.__TestSrcDirPath('model_servers'),
         'tensorflow_model_server')
-    command += ' --port=' + str(port)
-    command += ' --rest_api_port=' + str(rest_api_port)
-    command += ' --rest_api_timeout_in_ms=' + str(HTTP_REST_TIMEOUT_MS)
 
+    command += ' --port=' + str(port)
+ 
     if model_config_file:
       command += ' --model_config_file=' + model_config_file
     elif model_path:
@@ -153,14 +164,6 @@ class TensorflowModelServer(object):
     else:
       raise ValueError('Both model_config_file and model_path cannot be empty!')
 
-    if monitoring_config_file:
-      command += ' --monitoring_config_file=' + monitoring_config_file
-
-    if batching_parameters_file:
-      command += ' --enable_batching'
-      command += ' --batching_parameters_file=' + batching_parameters_file
-    if grpc_channel_arguments:
-      command += ' --grpc_channel_arguments=' + grpc_channel_arguments
     print(command)
     proc = subprocess.Popen(shlex.split(command), stderr=pipe)
     atexit.register(proc.kill)
@@ -190,9 +193,10 @@ class TestSimilarityTransformerExport(tf.test.TestCase):
     #FLAGS.export_dir = os.path.join(FLAGS.output_dir, "export")
     FLAGS.model = "similarity_transformer_dev"
     FLAGS.hparams_set = "similarity_transformer_tiny"
-    #FLAGS.timeout_secs = 10
     FLAGS.train_steps = 1
     FLAGS.schedule = "train"
+    
+    timeout_secs = 10
     
     usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
     
@@ -206,20 +210,22 @@ class TestSimilarityTransformerExport(tf.test.TestCase):
     # Will start a tf model server on an un-used port and
     # kill process on exit.
     _, server, _ = TensorflowModelServer().RunServer(
-        model,
-        output_dir
+        FLAGS.model,
+        FLAGS.output_dir
     )
 
     # ----
     # Query the server
     
+    return 
+
     doc_query = [1,2,3] # Dummy encoded doc query
     code_query = [1,2,3] # Dummy encoded code query
 
     # Alternatively for query, without going through query.main()
     # TODO: Is servable_name the same as model name?
     request_fn = serving_utils.make_grpc_request_fn(
-        servable_name=model,
+        servable_name=FLAGS.model,
         server=server,
         timeout_secs=timeout_secs)
 

@@ -20,6 +20,8 @@ from __future__ import print_function
 import os
 import json
 import logging
+import shutil
+import pprint
 
 import tensorflow as tf
 
@@ -32,6 +34,7 @@ from tk.kube import Resources
 from tk.kube import TFJob
 from tk.kube import TFJobReplica
 from tk.util import hack_dict_to_cli_args
+from tk.util import generate_job_name
 
 
 class T2TExperiment(TFJob):
@@ -223,6 +226,162 @@ def tf_config_to_additional_flags():
   return task_type, tid
 
 
+def _stage(local_app_root, remote_app_root):
+    """Stage data from `local_app_root` to `remote_app_root`.
+    
+    Args:
+        local_app_root (str): Directory path on local FS.
+        remote_app_root (str): Directory path on remote FS.
+    """
+    
+    if not os.path.exists(local_app_root):
+        raise ValueError("Can't stage from a non-existent source, "
+                         "saw %s" % local_app_root)
+
+    shutil.copytree(local_app_root, remote_app_root)
+
+
+def configure_experiment(base_name, num_gpu_per_worker=1,
+                         problem="img2img_allen_brain_dim8to32",
+                         model="img2img_transformer",
+                         hparams_set="img2img_transformer2d_tiny",
+                         num_steps=100000,
+                         num_workers=0,
+                         num_ps=0,
+                         ps_gpu=1,
+                         log_device_placement=False,
+                         profile=False,
+                         dbgprofile=False,
+                         extra_hparams={
+                           "batch_size": 4
+                         },
+                         app_root="/mnt/nfs-east1-d/work/tk",
+                         base_image="tensorflow/tensorflow:latest-gpu",
+                         reuse_output_dir=None):
+    """Wrapper to construct args object and produce job scripts.
+
+    Args:
+        base_name (str): The base name to be used to identify the experiment.
+    """
+    
+    output_dir = os.path.join(app_root, "output")
+
+    job_name = generate_job_name(base_name)
+
+    train_args = {
+        "problem": problem,
+        "model": model,
+        "hparams_set": hparams_set,
+        "data_dir": "/mnt/nfs-east1-d/data",
+        "output_dir": output_dir,
+        "train_steps": num_steps,
+        "schedule": "train",
+        "profile": profile,
+        "log_device_placement": log_device_placement,
+        "worker_gpu": num_gpu_per_worker,
+        "ps_gpu": ps_gpu,
+        "save_checkpoints_secs": 1800,
+        "dbgprofile": dbgprofile, # Saves profiling timelines, viewable in chrome://tracing
+        "ssd_mount_path": "/mnt/disks/ssd0",
+        "worker_gpu_memory_fraction": 0.95,
+        #"hparams": "'batch_size=%s'" % batch_size
+    }
+    
+    #if isinstance(loss_variant, str):
+    #    train_args["hparams"] = "'batch_size=%s,loss_variant=%s'" % (batch_size,
+    #                                                                 loss_variant)
+    
+    hparams = ""
+    for k, v in extra_hparams.items():
+        if len(hparams) != 0:
+            hparams += ","
+        hparams += "%s=%s" % (k, v)
+        
+    train_args["hparams"] = "'%s'" % hparams
+
+    args = {
+        "job_name": job_name,
+        "volume_claim_id": "nfs-east1-d",
+        "app_root": app_root,
+        "gcp_project": "foo",
+        "namespace": "kubeflow",
+        "image": base_image,
+        "smoke": True,
+        "batch": False,
+        "train_args": train_args,
+        "cpu": 7,
+        "memory": "40Gi",
+        "num_gpu": num_gpu_per_worker,
+        
+        # DEV
+        "master_gpu": num_gpu_per_worker,
+        "ps_gpu": ps_gpu,
+        "worker_gpu": num_gpu_per_worker,
+        # --
+
+        "num_local_ssd": 1,
+        "no_wait": True,
+        "num_worker_replicas": num_workers,
+        "num_ps_replicas": num_ps,
+        "selector_labels": {
+          "cloud.google.com/gke-nodepool": "train-gpu-preemptible-%sx-hm" % num_gpu_per_worker,
+          "cloud.google.com/gke-accelerator": "nvidia-tesla-k80"
+        }
+    }
+
+    local_app_root = args["app_root"]
+
+    testing_storage_base = "/mnt/nfs-east1-d/comparisons/%s" % base_name
+    
+    remote_app_root = "%s/%s" % (testing_storage_base,
+                                 args["job_name"])
+
+    output_dir_root = "gs://kubeflow-rl-checkpoints/comparisons/%s" % base_name
+
+    # Put training checkpoints in a folder like so:
+    # gs://kubeflow-rl-checkpoints/comparisons/[exp base name]/[job id]/output/
+    args["train_args"]["output_dir"] = os.path.join(output_dir_root,
+                                                      args["job_name"],
+                                                      "output")
+
+    if reuse_output_dir is not None:
+      args["train_args"]["output_dir"] = reuse_output_dir
+
+    args["train_args"]["t2t_usr_dir"] = os.path.join(output_dir_root,
+                                                     args["job_name"],
+                                                     "tk")
+
+    print("train_args:")
+    pprint.pprint(args["train_args"])
+
+    for job_type in ["master", "ps"]:
+        
+        with open(os.path.join(local_app_root, "%s-job.sh" % job_type), "w") as f:
+          f.write("ls /mnt\n")
+          #f.write("mkdir /tmp/deps")
+          #f.write("tar -xzf %s/deps.tgz /tmp/deps\n" % remote_app_root")
+          f.write("cp -r /mnt/nfs-east1-d/data/* /mnt/ssd0/\n")
+          f.write("pip install -e %s/vendor/tensor2tensor\n" % remote_app_root)
+          f.write("pip install -e %s\n" % remote_app_root)
+          f.write("nvidia-smi\n")
+          f.write("python -c 'from tensorflow.python.client import device_lib; print(device_lib.list_local_devices())'\n")
+          f.write("python -c 'import tensorflow as tf; print(tf.__version__)'\n")
+          f.write("echo ${TF_CONFIG}\n")
+          f.write("cd %s\n" % remote_app_root)
+          cmd = ["python", "-m", "tk.experiment"]
+
+          cmd.extend(hack_dict_to_cli_args(args["train_args"]))
+          f.write(" ".join(cmd) + "\n")
+          f.write("nvidia-smi\n")
+          logging.info(local_app_root)
+    
+    _stage(local_app_root, remote_app_root)
+    args["app_root"] = remote_app_root
+    args["batch"] = True
+
+    return args
+
+
 def main(argv):
   """Configure, setup logging, and train."""
 
@@ -231,7 +390,7 @@ def main(argv):
   tf.gfile.MakeDirs(FLAGS.output_dir)
 
   worker_name = "%s-%s" % (task_type, task_id)
-    
+
   trainer_main(None)
 
 

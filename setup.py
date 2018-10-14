@@ -22,13 +22,15 @@ DESCRIPTION = 'TK is a kit of tools in kit form.'
 URL = ''
 REQUIRED = [
     "IPython",
-    #"tensorflow",
-    "tensorflow-gpu",
+    # Assume host machine already has tensorflow installed.
+    #"tensorflow==1.6.0",
+    #"tensorflow-gpu",
     "kubernetes==5.0.0",
     "allensdk==0.14.4",
     "Pillow",
     "psutil",
-    "protobuf_to_dict"
+    "protobuf_to_dict",
+    "pytest"
 ]
 
 setup(

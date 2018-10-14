@@ -20,11 +20,16 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+from tensor2tensor.models.transformer import Transformer
 
 from tensor2tensor.models.transformer import transformer_base
 
 
-_LOSS_VARIANTS = ["slicenet", "kfnet", "simple_cd"]
+_LOSS_VARIANTS = [
+    "slicenet",
+    "kfnet",
+    "simple_cd"
+]
 
 
 def _cosine_similarity(a, b):
@@ -45,7 +50,7 @@ def slicenet_similarity_cost(a, b, margin=0.2):
   """
 
   with tf.name_scope("slicenet_loss"):
-        
+
     a, b = common_layers.pad_to_same_length(a, b)
 
     cosine_similarity = _cosine_similarity(a, b)
@@ -60,10 +65,6 @@ def slicenet_similarity_cost(a, b, margin=0.2):
     empty_diagonal_mat = tf.ones_like(cost_s) - tf.eye(batch_size)
     cost_s *= empty_diagonal_mat
     cost_im *= empty_diagonal_mat
-
-    return cost_s + cost_im
-
-    return cost_s, cost_im
 
     return tf.reduce_mean(cost_s) + tf.reduce_mean(cost_im)
 
@@ -156,25 +157,97 @@ def encode(tensor, hparams):
 
 
 @registry.register_model
+class SimilarityTransformerPretrainStringEncoding(Transformer):
+
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
+    with tf.variable_scope("string_encoder"):
+      return super(SimilarityTransformerPretrainStringEncoding, self).encode(
+          inputs, target_space, hparams, features, losses)
+
+  def decode(self, decoder_input, encoder_output, encoder_decoder_attention_bias,
+             decoder_self_attention_bias, hparams, cache=None, nonpadding=None,
+             losses=None):
+    with tf.variable_scope("string_decoder"):
+      return super(SimilarityTransformerPretrainStringEncoding, self).decode(
+          decoder_input, encoder_output, encoder_decoder_attention_bias,
+          decoder_self_attention_bias, hparams, cache, nonpadding,
+          losses)
+
+
+@registry.register_model
+class SimilarityTransformerPretrainCodeEncoding(Transformer):
+    
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
+    with tf.variable_scope("code_encoder"):
+      return super(SimilarityTransformerPretrainCodeEncoding, self).encode(
+          inputs, target_space, hparams, features, losses)
+
+  def decode(self, decoder_input, encoder_output, encoder_decoder_attention_bias,
+             decoder_self_attention_bias, hparams, cache=None, nonpadding=None,
+             losses=None):
+    with tf.variable_scope("code_decoder"):
+      return super(SimilarityTransformerPretrainCodeEncoding, self).decode(
+          decoder_input, encoder_output, encoder_decoder_attention_bias,
+          decoder_self_attention_bias, hparams, cache, nonpadding,
+          losses)
+
+
+@registry.register_model
+class SimilarityTransformerDev(Transformer):
+
+  def encode_string(self, inputs, features=None, losses=None):
+    hparams = self._hparams
+    target_space = problem.SpaceID.EN_TOK
+    with tf.variable_scope("string_encoder"):
+      encoder_output, _ = super(SimilarityTransformerDev, self).encode(
+          inputs, target_space, hparams, features, losses)
+      return tf.reduce_mean(encoder_output, axis=1)
+
+  def encode_code(self, inputs, features=None, losses=None):
+    hparams = self._hparams
+    target_space = problem.SpaceID.EN_TOK
+    with tf.variable_scope("code_encoder"):
+      encoder_output, _ = super(SimilarityTransformerDev, self).encode(
+          inputs, target_space, hparams, features, losses)
+      return tf.reduce_mean(encoder_output, axis=1)
+
+  def body(self, features):
+    string_embedding = self.encode_string(features["inputs"])
+    code_embedding = self.encode_code(features["targets"])
+    loss = self.similarity_cost(string_embedding, code_embedding)
+    return string_embedding, {"training": loss}
+
+  def similarity_cost(self, a, b):
+    loss_variant = self.hparams.loss_variant
+    return similarity_cost(a, b, loss_variant)
+
+  def infer(self, features=None, **kwargs):
+    del kwargs
+    if "targets" not in features:
+      features["targets"] = tf.zeros_like(features["inputs"])
+    predictions, _ = self(features)
+    return predictions
+
+
+@registry.register_model
+class SimilarityTransformerStringEncoder(SimilarityTransformerDev):
+  """String encoder model restricted to string encoding branch."""
+
+  def body(self, features):
+    return self.encode_string(features["inputs"]), {"training": 0.0}
+
+
+@registry.register_model
+class SimilarityTransformerCodeEncoder(SimilarityTransformerDev):
+  """Code encoder model restricted to code encoding branch."""
+
+  def body(self, features):
+    return self.encode_code(features["inputs"]), {"training": 0.0}
+
+
+"""
+@registry.register_model
 class SimilarityTransformerDev(t2t_model.T2TModel):
-  """Transformer Model for Similarity between two strings.
-  This model defines the architecture using two transformer
-  networks, each of which embed a string and the loss is
-  calculated as a Binary Cross-Entropy loss. Normalized
-  Dot Product is used as the distance measure between two
-  string embeddings.
-
-  TODO: Works with batch > 1 via t2t_trainer on kubeflow?
-  TODO: Training with various losses works?
-  TODO: Inference implemented in way compatible with tf_serving?
-  TODO: Try implementing pre-training.
-  TODO: Try implementing markov clustering loss.
-  TODO: Is there something about t2t that will let us more conveniently
-        train with multiple problem spaces at the same time, e.g. allowing
-        us to avoid explicitly specifying different variable scopes for
-        string and code embeddings?
-
-  """
 
   def top(self, body_output, _):  # pylint: disable=no-self-use
     return body_output
@@ -187,7 +260,7 @@ class SimilarityTransformerDev(t2t_model.T2TModel):
 
     if 'targets' in features:
       code_embedding = self.embed_code(features["targets"])
-      loss = self.loss(string_embedding, code_embedding, loss_variant)
+      loss = self.similarity_cost(string_embedding, code_embedding, loss_variant)
       return string_embedding, {"training": loss}
 
     return string_embedding, {"training": 0.0}
@@ -200,7 +273,7 @@ class SimilarityTransformerDev(t2t_model.T2TModel):
     with tf.variable_scope("code_embedding"):
       return encode(code_tensor, self._hparams)
 
-  def loss(self, a, b, loss_variant):
+  def similarity_cost(self, a, b, loss_variant):
     return similarity_cost(a, b, loss_variant)
 
   def infer(self, features=None, **kwargs):
@@ -208,7 +281,7 @@ class SimilarityTransformerDev(t2t_model.T2TModel):
 
     predictions, _ = self(features)
     return predictions
-
+"""
 
 @registry.register_hparams
 def similarity_transformer_tiny():
@@ -220,5 +293,5 @@ def similarity_transformer_tiny():
   hparams.docs_encoder_trainable = True
   hparams.code_encoder_trainable = True
   hparams.initializer = None
-  hparams.loss_variant = "kfnet"
+  hparams.add_hparam("loss_variant", "kfnet")
   return hparams
