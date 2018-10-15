@@ -83,13 +83,13 @@ def simple_similarity_cost(a, b, k=2):
 
     # get scores that refer to two embeddings that should correspond
     self_cosine_similarity = tf.diag_part(cosine_similarity)
-
+    
     # Sum the values off the diagonal with 1 - values on diagonal, k >=0, maybe 2
     # Will have values on range [-B^2, B^2] for batch size B.
-    return tf.reduce_mean(cosine_similarity - k*self_cosine_similarity)
+    return tf.reduce_mean(cosine_similarity) - k*tf.reduce_mean(self_cosine_similarity)
 
 
-def kubeflow_similarity_cost(a, b, scale_factor=1):
+def kubeflow_similarity_cost(a, b, scale_factor=20, target=0.2):
   """Modification to original kubeflow code_search example loss.
 
   Notes:
@@ -107,19 +107,19 @@ def kubeflow_similarity_cost(a, b, scale_factor=1):
   """
 
   with tf.name_scope("kf_loss"):
+        
+    shift = scale_factor*(1 - target)
 
     cosine_similarity = _cosine_similarity(a, b)
     cosine_similarity_flat = tf.reshape(cosine_similarity, [-1, 1])
-    cosine_similarity_flat = scale_factor * cosine_similarity_flat
+    cosine_similarity_flat = scale_factor * cosine_similarity_flat - shift
 
     # Positive samples on the diagonal, reshaped as row-major.
-    label_matrix = tf.eye(tf.shape(cosine_similarity)[0], dtype=tf.int32)
-    label_matrix_flat = tf.reshape(label_matrix, [-1])
+    label_matrix = tf.eye(tf.shape(cosine_similarity)[0], dtype=tf.float32)
+    label_matrix_flat = tf.reshape(label_matrix, [-1, 1])
 
-    labels = tf.one_hot(label_matrix_flat, 1)
-
-    return tf.nn.sigmoid_cross_entropy_with_logits(labels=labels,
-                                                   logits=cosine_similarity_flat)
+    return tf.nn.sigmoid_cross_entropy_with_logits(labels=label_matrix_flat,
+                                                logits=cosine_similarity_flat)
 
 
 def similarity_cost(a, b, loss_variant):
