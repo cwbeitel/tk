@@ -221,7 +221,7 @@ def tf_config_to_additional_flags():
   FLAGS.worker_replicas = 1
 
   FLAGS.sync = True
-  FLAGS.schedule = 'train'
+  #FLAGS.schedule = 'train'
 
   return task_type, tid
 
@@ -257,7 +257,8 @@ def configure_experiment(base_name, num_gpu_per_worker=1,
                          },
                          app_root="/mnt/nfs-east1-d/work/tk",
                          base_image="tensorflow/tensorflow:latest-gpu",
-                         reuse_output_dir=None):
+                         reuse_output_dir=None,
+                         schedule="continuous_train_and_evaluate"):
     """Wrapper to construct args object and produce job scripts.
 
     Args:
@@ -275,7 +276,7 @@ def configure_experiment(base_name, num_gpu_per_worker=1,
         "data_dir": "/mnt/nfs-east1-d/data",
         "output_dir": output_dir,
         "train_steps": num_steps,
-        "schedule": "train",
+        "schedule": schedule,
         "profile": profile,
         "log_device_placement": log_device_placement,
         "worker_gpu": num_gpu_per_worker,

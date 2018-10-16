@@ -23,6 +23,8 @@ from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
+from tensor2tensor.layers import common_layers
+import numpy as np
 
 
 @registry.register_problem
@@ -215,47 +217,29 @@ class GithubMultiProblemBase(GithubFunctionDocstring):
             }
 
 
+def random_mask(tensor):
+  mask = tf.random_uniform(common_layers.shape_list(tensor),
+                           0, 10, dtype=tf.float32)
+  mask = tf.cast(tf.greater(mask, 1), tf.int64)
+  return tf.multiply(tensor, mask)
+
+
 @registry.register_problem
 class GithubConstrainedEmbedding(GithubFunctionDocstring):
 
-  def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    csv_files = self.get_csv_files(data_dir, tmp_dir, dataset_split)
+  def dataset_filename(self):
+    return "github_function_docstring"  # Reuse base problem data
 
-    for pairs_file in csv_files:
-      tf.logging.debug("Reading {}".format(pairs_file))
-      with tf.gfile.Open(pairs_file) as csv_file:
-        for line in csv_file:
-          reader = csv.reader(StringIO(line))
-          for docstring_tokens, function_tokens in reader:
+  def preprocess_example(self, example, mode, hparams):
 
-            yield {
-                "inputs": _random_mask_sequence(function_tokens),
-                "targets": function_tokens,
-                "docstring": docstring_tokens,
-                "code": function_tokens,
-                "embed_code": [0]
-            }
+    example["docstring"] = example["inputs"]
+    example["code"] = example["targets"]
+    if np.random.randint(2) == 0:
+      # docstring un-masking
+      example["targets"] = example["inputs"]
+      example["inputs"] = random_mask(example["inputs"])
+    else:
+      # code un-masking
+      example["inputs"] = random_mask(example["targets"])
 
-            yield {
-                "inputs": _random_mask_sequence(docstring_tokens),
-                "targets": docstring_tokens,
-                "docstring": docstring_tokens,
-                "code": function_tokens,
-                "embed_code": [0]
-            }
-
-  def example_reading_spec(self):
-    data_fields, data_items_to_decoders = super(GithubConstrainedEmbedding,
-                                                self).example_reading_spec()
-
-    data_fields.update({
-        "docstring": "",
-        "code": ""
-    })
-
-    data_items_to_decoders.update({
-        "docstring": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="docstring"),
-        "code": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="code")
-    })
-
-    return data_fields, data_items_to_decoders
+    return example

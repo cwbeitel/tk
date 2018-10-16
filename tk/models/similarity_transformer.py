@@ -39,7 +39,7 @@ def _cosine_similarity(a, b):
 
     a = tf.nn.l2_normalize(a, 1)
     b = tf.nn.l2_normalize(b, 1)
-    return tf.matmul(a, tf.transpose(b)) 
+    return tf.matmul(a, b, transpose_b=True)
 
 
 def slicenet_similarity_cost(a, b, margin=0.2):
@@ -112,14 +112,14 @@ def kubeflow_similarity_cost(a, b, scale_factor=20, target=0.2):
 
     cosine_similarity = _cosine_similarity(a, b)
     cosine_similarity_flat = tf.reshape(cosine_similarity, [-1, 1])
-    cosine_similarity_flat = scale_factor * cosine_similarity_flat - shift
+    cosine_similarity_flat = scale_factor * cosine_similarity_flat #- shift
 
     # Positive samples on the diagonal, reshaped as row-major.
     label_matrix = tf.eye(tf.shape(cosine_similarity)[0], dtype=tf.float32)
     label_matrix_flat = tf.reshape(label_matrix, [-1, 1])
 
     return tf.nn.sigmoid_cross_entropy_with_logits(labels=label_matrix_flat,
-                                                logits=cosine_similarity_flat)
+                                                   logits=cosine_similarity_flat)
 
 
 def similarity_cost(a, b, loss_variant):
@@ -230,58 +230,39 @@ class SimilarityTransformerDev(Transformer):
 
 
 @registry.register_model
-class SimilarityTransformerStringEncoder(SimilarityTransformerDev):
-  """String encoder model restricted to string encoding branch."""
+class ConstrainedEmbeddingTransformer(Transformer):
 
   def body(self, features):
-    return self.encode_string(features["inputs"]), {"training": 0.0}
+    hparams = self._hparams
+    target_space = problem.SpaceID.EN_TOK
 
+    if self._hparams.mode == tf.estimator.ModeKeys.PREDICT:
+      encoded, _ = self.encode(features["predictme"], target_space, hparams,
+                               features=features)
+      return tf.reduce_mean(encoded, axis=1), {"training": 0.0}
+  
+    features_alt = {"inputs":features["docstring"], "targets":features["code"]}
+    features_alt = self.bottom(features_alt)
 
-@registry.register_model
-class SimilarityTransformerCodeEncoder(SimilarityTransformerDev):
-  """Code encoder model restricted to code encoding branch."""
+    string_embedding, _ = self.encode(features_alt["inputs"], target_space, hparams,
+                                      features=features_alt)
+    string_embedding = tf.reduce_mean(string_embedding, axis=1)
+    code_embedding, _ = self.encode(features_alt["targets"], target_space, hparams,
+                                    features=features_alt)
+    code_embedding = tf.reduce_mean(code_embedding, axis=1)
+    
+    sc = similarity_cost(string_embedding, code_embedding, self.hparams.loss_variant)
 
-  def body(self, features):
-    return self.encode_code(features["inputs"]), {"training": 0.0}
+    ret = super(ConstrainedEmbeddingTransformer, self).body(features)
 
+    if isinstance(ret, tf.Tensor) or isinstance(ret, tf.EagerTensor):
+      return ret, {"similarity": sc}
+    elif isinstance(ret, tuple):
+      if not isinstance(ret[1], dict):
+        raise ValueError("Unexpected second type in superclass body return.")
+      ret[1]["similarity"] = sc
+      return ret
 
-"""
-@registry.register_model
-class SimilarityTransformerDev(t2t_model.T2TModel):
-
-  def top(self, body_output, _):  # pylint: disable=no-self-use
-    return body_output
-
-  def body(self, features):
-
-    loss_variant = self.hparams.loss_variant
-
-    string_embedding = self.embed_string(features["inputs"])
-
-    if 'targets' in features:
-      code_embedding = self.embed_code(features["targets"])
-      loss = self.similarity_cost(string_embedding, code_embedding, loss_variant)
-      return string_embedding, {"training": loss}
-
-    return string_embedding, {"training": 0.0}
-
-  def embed_string(self, string_tensor):
-    with tf.variable_scope("string_embedding"):
-      return encode(string_tensor, self._hparams)
-
-  def embed_code(self, code_tensor):
-    with tf.variable_scope("code_embedding"):
-      return encode(code_tensor, self._hparams)
-
-  def similarity_cost(self, a, b, loss_variant):
-    return similarity_cost(a, b, loss_variant)
-
-  def infer(self, features=None, **kwargs):
-    del kwargs
-
-    predictions, _ = self(features)
-    return predictions
-"""
 
 @registry.register_hparams
 def similarity_transformer_tiny():
@@ -293,5 +274,5 @@ def similarity_transformer_tiny():
   hparams.docs_encoder_trainable = True
   hparams.code_encoder_trainable = True
   hparams.initializer = None
-  hparams.add_hparam("loss_variant", "kfnet")
+  hparams.add_hparam("loss_variant", "slicenet")
   return hparams
