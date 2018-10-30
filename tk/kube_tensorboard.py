@@ -141,8 +141,8 @@ class TensorBoardDeployment(object):
         attached_volume = None
         if volume_claim_id is not None:
           attached_volume = AttachedVolume(volume_claim_id)
-          container_args["attached_volumes"] = [
-            attached_volume
+          container_args["volume_mounts"] = [
+            attached_volume.volume_mount
           ]
 
         container = Container(**container_args)

@@ -30,6 +30,7 @@ Modes = tf.estimator.ModeKeys
 from tk.models import similarity_transformer
 
 
+"""
 class TestLossFunctions(tf.test.TestCase):
     
   def setUp(self):
@@ -47,9 +48,11 @@ class TestLossFunctions(tf.test.TestCase):
 
   def test_losses(self):
     
+
     for loss_variant in similarity_transformer._LOSS_VARIANTS:
       similarity_transformer.similarity_cost(self.t1, self.t2, loss_variant)
 
+"""
 
 # Setup helper functions for encoding and decoding
 def encode(input_str, output_str=None, encoders=None):
@@ -86,7 +89,7 @@ def training_test(hparams, p_hparams, problem_object, data_dir):
 class TestSimilarityTransformerDevModel(tf.test.TestCase):
 
   def setUp(self):
-    self.problem_object = registry.problem("github_function_docstring")
+    self.problem_object = registry.problem("github_constrained_embedding")
     self.data_dir = "/mnt/nfs-east1-d/data"
     self.hparams = registry.hparams("similarity_transformer_tiny")
     self.hparams.data_dir = self.data_dir
@@ -96,7 +99,7 @@ class TestSimilarityTransformerDevModel(tf.test.TestCase):
   def test_trains(self):
     """Test that we can run one 10 iterations of training with batch size of 1."""
     
-    model = registry.model("similarity_transformer_dev")(
+    model = registry.model("constrained_embedding_transformer_v2")(
         self.hparams, tf.estimator.ModeKeys.TRAIN, self.p_hparams
     )
 

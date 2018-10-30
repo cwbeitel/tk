@@ -68,7 +68,7 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
                 self.DATA_PATH_PREFIX, i),
             ("func-doc-pairs-000{:02}-of-00100.csv".format(i),)
         ]
-        for i in range(1)
+        for i in range(100)
     ]
 
   @property
