@@ -27,7 +27,7 @@ from tensor2tensor.layers import common_layers
 import numpy as np
 
 
-@registry.register_problem
+
 class GithubFunctionDocstring(text_problems.Text2TextProblem):
   """Function and Docstring similarity Problem.
   This problem contains the data consisting of function
@@ -224,11 +224,80 @@ def random_mask(tensor):
   return tf.multiply(tensor, mask)
 
 
+# yes hackily repetitive
+
 @registry.register_problem
 class GithubConstrainedEmbedding(GithubFunctionDocstring):
 
-  def dataset_filename(self):
-    return "github_function_docstring"  # Reuse base problem data
+  @property
+  def approx_vocab_size(self):
+    return 2**13
+
+  def preprocess_example(self, example, mode, hparams):
+
+    example["docstring"] = example["inputs"]
+    example["code"] = example["targets"]
+    if np.random.randint(2) == 0:
+      # docstring un-masking
+      example["targets"] = example["inputs"]
+      example["inputs"] = random_mask(example["inputs"])
+    else:
+      # code un-masking
+      example["inputs"] = random_mask(example["targets"])
+
+    return example
+
+
+@registry.register_problem
+class GithubConstrainedEmbedding16k(GithubFunctionDocstring):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**14
+
+  def preprocess_example(self, example, mode, hparams):
+
+    example["docstring"] = example["inputs"]
+    example["code"] = example["targets"]
+    if np.random.randint(2) == 0:
+      # docstring un-masking
+      example["targets"] = example["inputs"]
+      example["inputs"] = random_mask(example["inputs"])
+    else:
+      # code un-masking
+      example["inputs"] = random_mask(example["targets"])
+
+    return example
+
+
+@registry.register_problem
+class GithubConstrainedEmbedding32k(GithubFunctionDocstring):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**15
+
+  def preprocess_example(self, example, mode, hparams):
+
+    example["docstring"] = example["inputs"]
+    example["code"] = example["targets"]
+    if np.random.randint(2) == 0:
+      # docstring un-masking
+      example["targets"] = example["inputs"]
+      example["inputs"] = random_mask(example["inputs"])
+    else:
+      # code un-masking
+      example["inputs"] = random_mask(example["targets"])
+
+    return example
+
+
+@registry.register_problem
+class GithubConstrainedEmbedding64k(GithubFunctionDocstring):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**16
 
   def preprocess_example(self, example, mode, hparams):
 
